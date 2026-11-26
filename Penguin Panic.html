@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Penguin Panic</title>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#000;font-family:"Courier New",monospace;color:#fff;user-select:none}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;image-rendering:pixelated}
+#scan{position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0 1px,transparent 1px 3px)}
+#hurt{position:fixed;inset:0;background:#f00;opacity:0;pointer-events:none}
+.box{background:#1a1030;border:4px solid #8a6cff;box-shadow:4px 4px 0 #000;padding:10px 14px}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;gap:10px;pointer-events:none;font-weight:bold;font-size:14px;text-shadow:2px 2px #000}
+#lifebar{width:160px;height:14px;background:#300;border:2px solid #fff}#life{height:100%;background:#4f4;width:100%}
+#msg{position:fixed;bottom:18%;width:100%;text-align:center;font-size:18px;font-weight:bold;text-shadow:2px 2px #000;pointer-events:none}
+#cross{position:fixed;left:50%;top:50%;width:8px;height:8px;margin:-4px;background:#0ff;pointer-events:none;box-shadow:0 0 0 2px #000}
+.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.78);z-index:10;text-align:center}
+.hidden{display:none!important}
+button{font:inherit;font-weight:bold;background:#6a4cff;color:#fff;border:3px solid #fff;padding:10px 22px;cursor:pointer;box-shadow:3px 3px 0 #000}
+#modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:5;background:rgba(5,0,20,.5)}
+#staffbox{background:#120a26;border:3px solid #8a6cff;height:140px;display:flex;justify-content:center;transition:opacity 1.5s linear}
+#staffbox.fade{opacity:0}
+#pwrap{opacity:0;pointer-events:none;transition:opacity 1.2s}
+#pwrap.show{opacity:1;pointer-events:auto}
+#keys{position:relative;height:130px;margin:6px auto 0}
+.k{position:absolute;top:0;border:2px solid #000;cursor:pointer}
+.k.w{background:#e8e0ff;height:130px;width:38px;z-index:1}.k.b{background:#3a2a7a;height:80px;width:22px;z-index:2}
+.k:active{filter:brightness(1.5)}
+</style></head><body>
+<div id="scan"></div><div id="hurt"></div><div id="cross"></div>
+<div id="hud">
+ <div class="box" style="padding:6px 10px">LIFE <span id="lt">100</span><div id="lifebar"><div id="life"></div></div></div>
+ <div class="box" style="padding:6px 10px">SPELLS <span id="sp" style="color:#6ff;font-size:20px">0</span><br><span style="font-size:11px;color:#bbf">[ENTER] notes · [SPACE] shoot</span></div>
+ <div class="box" style="padding:6px 10px">EVIL <span id="ev" style="color:#f66">20</span> · FLOOR <span id="fl">1</span></div>
+</div>
+<div id="msg"></div>
+<div id="modal" class="hidden"><div class="box" style="width:min(540px,96vw)">
+ <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>MEMORIZE &amp; PLAY THE 2 NOTES</span><span>[ENTER] EXIT</span></div>
+ <div id="staffbox"><div id="staff"></div></div>
+ <div id="pips" style="text-align:center;margin-top:6px;color:#6ff;letter-spacing:4px"></div>
+ <div id="fb" style="height:22px;text-align:center;font-weight:bold"></div>
+ <div id="pwrap"><div id="keys"></div></div>
+</div></div>
+<div id="ov" class="ov"><div class="box" style="max-width:460px;width:92%;padding:24px">
+ <h1 id="ot" style="margin:0 0 10px;color:#f66;text-shadow:3px 3px #000">PENGUIN PANIC</h1>
+ <p id="od" style="font-size:13px;line-height:1.6">20 evil penguins are terrorizing the mall! Cure them all with spells.<br><br>WASD move · Mouse aim · SPACE / Click shoot<br>ENTER: note activity (earn spells) · Esc frees mouse<br>Green escalators go UP, orange go DOWN</p>
+ <button id="ob">START</button></div></div>
+<script>
+const $=id=>document.getElementById(id),R=Math.random;
+let scene,camera,renderer,last=0,tNow=0,state='menu',modal=false,locked=false,mx=0,my=0,hurt=0,msgT=0,curRamp=null,busy=false;
+let penguins=[],humans=[],shots=[],parts=[],keys={},tm=[];
+const P={x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0};
+const RAMPS=[{z:-7,dir:1,y0:0,c:['#1f7a4a','#2fb36d']},{z:7,dir:-1,y0:0,c:['#8a4a10','#d98a2a']},{z:-3,dir:1,y0:6,c:['#1f7a4a','#2fb36d']},{z:3,dir:-1,y0:6,c:['#8a4a10','#d98a2a']}];
+/* audio */
+let ac;function beep(f,d=.2,type='square',v=.12){if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(v,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}
+const NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const freq=n=>{const m=n.match(/^([A-G]#?)(\d)$/);return 440*Math.pow(2,((+m[2]+1)*12+NN.indexOf(m[1])-69)/12)};
+/* world */
+function tx(c1,c2,rx,ry,stripe){const c=document.createElement('canvas');c.width=c.height=16;const x=c.getContext('2d');x.fillStyle=c1;x.fillRect(0,0,16,16);x.fillStyle=c2;
+ if(stripe)x.fillRect(0,0,8,16);else{x.fillRect(0,0,8,8);x.fillRect(8,8,8,8)}
+ x.fillStyle='rgba(0,0,0,.18)';for(let i=0;i<30;i++)x.fillRect(R()*16|0,R()*16|0,1,1);
+ const t=new THREE.CanvasTexture(c);t.magFilter=t.minFilter=THREE.NearestFilter;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx,ry);return t}
+function box(x,y,z,w,h,d,c1,c2,rx,ry){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshLambertMaterial({map:tx(c1,c2,rx??w/2,ry??d/2)}));m.position.set(x,y,z);scene.add(m);return m}
+function build(){
+ box(0,-.2,0,60,.4,60,'#4a4580','#5a5494');
+ for(let L=1;L<=2;L++){const y=6*L-.2,a='#4a4580',b='#5a5494';
+  box(0,y,-20,60,.4,20,a,b);box(0,y,20,60,.4,20,a,b);box(-20,y,0,20,.4,20,a,b);box(20,y,0,20,.4,20,a,b);
+  const t='#ffcc00';box(0,6*L+.05,-10,20,.1,.3,t,t,1,1);box(0,6*L+.05,10,20,.1,.3,t,t,1,1);box(-10,6*L+.05,0,.3,.1,20,t,t,1,1);box(10,6*L+.05,0,.3,.1,20,t,t,1,1)}
+ box(0,18.2,0,60,.4,60,'#2a2458','#322c68');
+ const w=['#6a3a7a','#7a4688'];
+ box(0,9,-30.5,61,18,1,w[0],w[1],30,9);box(0,9,30.5,61,18,1,w[0],w[1],30,9);box(-30.5,9,0,1,18,61,w[0],w[1],30,9);box(30.5,9,0,1,18,61,w[0],w[1],30,9);
+ RAMPS.forEach(r=>{const m=box(0,r.y0+3-.15,r.z,20.9,.3,3,r.c[0],r.c[1],10,1);m.rotation.z=r.dir*Math.atan(.3);r.t=m.material.map});
+}
+function groundAt(x,z,y){let b=-Infinity;const lim=y+.7;curRamp=null;
+ for(let L=0;L<3;L++){const h=6*L;if(L>0&&Math.abs(x)<10&&Math.abs(z)<10)continue;if(h<=lim&&h>b)b=h}
+ for(const r of RAMPS)if(Math.abs(z-r.z)<1.5&&x>-10&&x<10){const h=r.y0+(r.dir>0?x+10:10-x)*.3;if(h<=lim&&h>b){b=h;curRamp=r}}
+ return b}
+function blocked(L,x,z){return Math.abs(x)>28.5||Math.abs(z)>28.5||(L>0&&Math.abs(x)<10.8&&Math.abs(z)<10.8)}
+/* actors */
+function mk(g,geo,mat,x,y,z){const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);g.add(m);return m}
+const LM=c=>new THREE.MeshLambertMaterial({color:c});
+function mkPenguin(){
+ const g=new THREE.Group(),body=LM(0xb01818),belly=LM(0xe8a0a0),or=LM(0xffa020),eye=new THREE.MeshBasicMaterial({color:0xff2020}),dk=LM(0x201010);
+ mk(g,new THREE.SphereGeometry(.5,8,6),body,0,.85,0).scale.set(1,1.5,.9);
+ mk(g,new THREE.SphereGeometry(.4,8,6),belly,0,.8,.2).scale.set(1,1.4,.6);
+ mk(g,new THREE.SphereGeometry(.32,8,6),body,0,1.75,0);
+ mk(g,new THREE.ConeGeometry(.1,.3,4),or,0,1.68,.38).rotation.x=Math.PI/2;
+ const eg=new THREE.SphereGeometry(.08,5,4);mk(g,eg,eye,-.14,1.82,.26);mk(g,eg,eye,.14,1.82,.26);
+ const mouth=mk(g,new THREE.TorusGeometry(.09,.022,4,6,Math.PI),dk,0,1.55,.27);
+ const brows=[-1,1].map(s=>{const b=mk(g,new THREE.BoxGeometry(.17,.04,.04),dk,s*.14,1.94,.27);b.rotation.z=s*.55;return b});
+ const fl=[-1,1].map(s=>{const m=mk(g,new THREE.BoxGeometry(.12,.7,.3),body,s*.56,.95,0);m.rotation.z=s*.25;return m});
+ const ft=[-1,1].map(s=>mk(g,new THREE.BoxGeometry(.25,.1,.4),or,s*.2,.05,.12));
+ scene.add(g);return{g,body,belly,eye,mouth,brows,fl,ft,good:false,state:'wander',t:0,a:R()*6.28,wt:0}}
+function mkHuman(){
+ const g=new THREE.Group(),c=LM(new THREE.Color().setHSL(R(),.6,.5)),sk=LM(0xe8b890);
+ mk(g,new THREE.CylinderGeometry(.28,.28,.9,6),c,0,.95,0);mk(g,new THREE.SphereGeometry(.2,6,5),sk,0,1.6,0);
+ const legs=[-1,1].map(s=>mk(g,new THREE.BoxGeometry(.18,.5,.2),LM(0x333355),s*.12,.25,0));
+ scene.add(g);return{g,legs,flee:0,from:null,a:R()*6.28,wt:0}}
+function place(o,L,far){let x,z;do{x=(R()-.5)*56;z=(R()-.5)*56}while(blocked(L,x,z)||(far&&L===0&&Math.hypot(x-P.x,z-P.z)<14));o.g.position.set(x,6*L,z);o.floor=L}
+function step(o,ang,sp,dt){const p=o.g.position,nx=p.x+Math.sin(ang)*sp*dt,nz=p.z+Math.cos(ang)*sp*dt;
+ if(blocked(o.floor,nx,nz)){o.a=ang+Math.PI*(.5+R());return false}p.x=nx;p.z=nz;o.g.rotation.y=ang;return true}
+function wander(o,sp,dt){o.wt-=dt;if(o.wt<=0){o.a=R()*6.28;o.wt=2+R()*3}step(o,o.a,sp,dt)}
+function setGood(p){if(p.state==='bite')P.held=0;p.body.color.set(0x2a62d8);p.belly.color.set(0xb8d4ff);p.eye.color.set(0x40a8ff);p.mouth.rotation.z=Math.PI;p.brows.forEach(b=>b.visible=false);p.g.rotation.z=0;p.good=true;p.state='wander';
+ const n=penguins.filter(q=>!q.good).length;say(n?'PENGUIN CURED! '+n+' LEFT':'ALL CURED!',2);beep(600,.15);beep(900,.25)}
+function updP(p,dt){const pos=p.g.position;let mv=false;
+ if(p.good){wander(p,1.4,dt);mv=true}
+ else if(p.state==='cool'){p.t-=dt;if(p.t<=0)p.state='wander'}
+ else if(p.state==='bite'){p.t-=dt;p.g.rotation.y=Math.atan2(P.x-pos.x,P.z-pos.z);if(p.t<=0){p.state='cool';p.t=5;P.held=0}}
+ else{const dx=P.x-pos.x,dz=P.z-pos.z,d=Math.hypot(dx,dz),same=Math.abs(P.y-p.floor*6)<2.5;
+  if(same&&d<1.7){p.state='bite';p.t=2;P.held=2;P.life-=10;hurt=.6;beep(90,.3,'sawtooth',.2)}
+  else if(same&&d<16){const a=Math.atan2(dx,dz);mv=step(p,a,3.4,dt)||step(p,a+1.4,3.4,dt)||step(p,a-1.4,3.4,dt)}
+  else{let best=null,bd=12;humans.forEach(h=>{if(h.floor!==p.floor)return;const e=Math.hypot(h.g.position.x-pos.x,h.g.position.z-pos.z);if(e<bd){bd=e;best=h}});
+   if(best){if(bd<1.2){best.flee=4;best.from={x:pos.x,z:pos.z};p.state='cool';p.t=1.2;beep(200,.1)}else mv=step(p,Math.atan2(best.g.position.x-pos.x,best.g.position.z-pos.z),2.6,dt)}
+   else{wander(p,1.6,dt);mv=true}}}
+ const s=mv?Math.sin(tNow*9)*.5:0;p.fl[0].rotation.x=s;p.fl[1].rotation.x=-s;p.ft[0].position.z=.12+s*.3;p.ft[1].position.z=.12-s*.3;
+ p.g.rotation.z=p.state==='bite'?Math.sin(tNow*40)*.08:0;pos.y=p.floor*6+(mv?Math.abs(Math.sin(tNow*9))*.05:0)}
+function updH(h,dt){h.flee=Math.max(0,h.flee-dt);const pos=h.g.position;let np=null,nd=9;
+ penguins.forEach(p=>{if(p.good||p.floor!==h.floor)return;const e=Math.hypot(p.g.position.x-pos.x,p.g.position.z-pos.z);if(e<nd){nd=e;np=p}});
+ let mv=true;const f=np?np.g.position:(h.flee>0?h.from:null);
+ if(f){const a=Math.atan2(pos.x-f.x,pos.z-f.z);step(h,a,5,dt)||step(h,a+1.5,5,dt)||step(h,a-1.5,5,dt)}else wander(h,1.5,dt);
+ const s=Math.sin(tNow*10+h.a)*.6;h.legs[0].rotation.x=s;h.legs[1].rotation.x=-s}
+/* player */
+function updPlayer(dt){
+ if(!modal){P.yaw+=((keys.ArrowLeft?1:0)-(keys.ArrowRight?1:0))*2*dt;
+  if(!locked){if(Math.abs(mx)>.25)P.yaw-=mx*1.8*dt;P.pitch=-my*.4}}
+ let f=0,s=0;if(!modal&&P.held<=0){f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);s=(keys.KeyD?1:0)-(keys.KeyA?1:0)}
+ const k=f&&s?.707*7:7;let vx=(-Math.sin(P.yaw)*f+Math.cos(P.yaw)*s)*k,vz=(-Math.cos(P.yaw)*f-Math.sin(P.yaw)*s)*k;
+ groundAt(P.x,P.z,P.y);if(curRamp&&P.vy<=0&&P.y-groundAt(P.x,P.z,P.y)<.3)vx+=2.6;
+ P.x=Math.max(-29.2,Math.min(29.2,P.x+vx*dt));P.z=Math.max(-29.2,Math.min(29.2,P.z+vz*dt));
+ const g=groundAt(P.x,P.z,P.y);
+ if(P.y-g<=.5&&P.vy<=0){P.y=g;P.vy=0}else{P.vy-=28*dt;P.y+=P.vy*dt;if(P.y<g){P.y=g;P.vy=0}}
+ camera.position.set(P.x,P.y+1.7,P.z);camera.rotation.set(P.pitch,P.yaw,P.held>0?Math.sin(tNow*40)*.05:0)}
+function say(m,t=2){$('msg').textContent=m;msgT=t}
+function shoot(){if(modal||state!=='play')return;
+ if(P.spells<=0){say('NO SPELLS! PRESS ENTER');beep(120,.15,'sawtooth');return}
+ P.spells--;beep(900,.2);const d=new THREE.Vector3(0,0,-1).applyEuler(camera.rotation);
+ const m=new THREE.Mesh(new THREE.OctahedronGeometry(.28,0),new THREE.MeshBasicMaterial({color:0x66ffff}));m.position.copy(camera.position).addScaledVector(d,.8);scene.add(m);shots.push({m,d,life:1.6})}
+const PG=new THREE.BoxGeometry(.12,.12,.12);
+function burst(p){for(let i=0;i<14;i++){const m=new THREE.Mesh(PG,new THREE.MeshBasicMaterial({color:R()<.5?0x66ffff:0xffffff}));m.position.copy(p);scene.add(m);parts.push({m,v:new THREE.Vector3((R()-.5)*6,R()*4,(R()-.5)*6),life:.8})}}
+function updShots(dt){
+ for(let i=shots.length-1;i>=0;i--){const s=shots[i];s.m.position.addScaledVector(s.d,38*dt);s.m.rotation.y+=dt*10;s.life-=dt;let done=s.life<=0;
+  for(const p of penguins){if(p.good)continue;const q=p.g.position;if(Math.hypot(q.x-s.m.position.x,q.y+1-s.m.position.y,q.z-s.m.position.z)<1.2){setGood(p);burst(s.m.position);done=true;break}}
+  if(done){scene.remove(s.m);shots.splice(i,1)}}
+ for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.v.y-=9*dt;p.m.position.addScaledVector(p.v,dt);p.life-=dt;if(p.life<=0){scene.remove(p.m);parts.splice(i,1)}}}
+/* note activity */
+const TREBLE=['E4','F4','G4','A4','B4','C5','D5','E5','F5'];let target=[],entered=[];
+function drawStaff(){const c=$('staff');c.innerHTML='';
+ try{const VF=Vex.Flow,r=new VF.Renderer(c,VF.Renderer.Backends.SVG);r.resize(260,140);const x=r.getContext();x.setFillStyle('#e8e0ff');x.setStrokeStyle('#e8e0ff');
+  const s=new VF.Stave(10,15,240);s.addClef('treble');s.setContext(x).draw();
+  const ns=target.map(n=>{const q=new VF.StaveNote({clef:'treble',keys:[n[0].toLowerCase()+'/'+n[1]],duration:'q'});q.setStyle({fillStyle:'#66ffff',strokeStyle:'#66ffff'});return q});
+  VF.Formatter.FormatAndDraw(x,s,ns)}catch(e){c.textContent=target.join(' ')}}
+function pips(){$('pips').textContent='● '.repeat(entered.length)+'○ '.repeat(2-entered.length)}
+function round(){tm.forEach(clearTimeout);tm=[];entered=[];busy=false;
+ const a=TREBLE[R()*9|0];let b;do{b=TREBLE[R()*9|0]}while(b===a);target=[a,b];drawStaff();pips();$('fb').textContent='';
+ const sb=$('staffbox'),pw=$('pwrap');sb.style.transition=pw.style.transition='none';sb.classList.remove('fade');pw.classList.remove('show');void sb.offsetWidth;sb.style.transition=pw.style.transition='';
+ tm.push(setTimeout(()=>{sb.classList.add('fade');pw.classList.add('show')},2000))}
+function fb(t,c){$('fb').textContent=t;$('fb').style.color=c;busy=true;tm.push(setTimeout(round,800))}
+function pressKey(n){if(busy||!$('pwrap').classList.contains('show'))return;
+ beep(freq(n),.5,'triangle',.25);entered.push(n);const i=entered.length-1;
+ if(n!==target[i]){P.spells=Math.max(0,P.spells-1);fb('WRONG! -1 SPELL','#f66');beep(110,.3,'sawtooth')}
+ else{pips();if(entered.length===2){P.spells++;fb('CORRECT! +1 SPELL','#6f6');beep(1100,.2)}}}
+function buildKeys(){const w=$('keys');let wx=0,lw=0;
+ for(let m=60;m<=79;m++){const n=NN[m%12]+(Math.floor(m/12)-1),blk=n.includes('#'),e=document.createElement('div');e.className='k '+(blk?'b':'w');
+  if(blk)e.style.left=(lw+28)+'px';else{e.style.left=wx+'px';lw=wx;wx+=40}
+  e.onmousedown=ev=>{ev.stopPropagation();pressKey(n)};w.appendChild(e)}
+ w.style.width=wx+'px'}
+function toggleModal(){if(state!=='play')return;modal=!modal;$('modal').classList.toggle('hidden',!modal);
+ if(modal){document.exitPointerLock?.();round()}else{tm.forEach(clearTimeout);document.body.requestPointerLock?.()}}
+/* flow */
+function reset(){[...penguins,...humans].forEach(o=>scene.remove(o.g));shots.forEach(s=>scene.remove(s.m));parts.forEach(s=>scene.remove(s.m));
+ penguins=[];humans=[];shots=[];parts=[];Object.assign(P,{x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0});
+ for(let i=0;i<20;i++){const p=mkPenguin();place(p,i%3,true);penguins.push(p);const h=mkHuman();place(h,(i+1)%3,true);humans.push(h)}}
+function showOv(t,d,b,c){$('ot').textContent=t;$('ot').style.color=c;$('od').innerHTML=d;$('ob').textContent=b;$('ov').classList.remove('hidden');document.exitPointerLock?.()}
+function startGame(){if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();reset();modal=false;$('modal').classList.add('hidden');state='play';$('ov').classList.add('hidden');document.body.requestPointerLock?.()}
+function end(win){state='over';modal=false;$('modal').classList.add('hidden');tm.forEach(clearTimeout);
+ if(win)showOv('YOU WIN!','Every penguin is good again. The mall is saved!','PLAY AGAIN','#6f6');
+ else showOv('GAME OVER','The penguins got you. Start again?','START AGAIN','#f66')}
+function hud(){$('life').style.width=Math.max(0,P.life)+'%';$('lt').textContent=Math.max(0,P.life);$('sp').textContent=P.spells;$('ev').textContent=penguins.filter(p=>!p.good).length;$('fl').textContent=Math.round(P.y/6)+1;$('hurt').style.opacity=hurt}
+function loop(ms){requestAnimationFrame(loop);const dt=Math.min(.05,(ms-last)/1000||0);last=ms;tNow=ms/1000;
+ if(state==='play'){const w=dt*(modal?.25:1);updPlayer(dt);penguins.forEach(p=>updP(p,w));humans.forEach(h=>updH(h,w));updShots(dt);
+  hurt=Math.max(0,hurt-dt*1.2);msgT-=dt;if(msgT<=0)$('msg').textContent='';hud();
+  if(P.life<=0)end(false);else if(penguins.every(p=>p.good))end(true)}
+ RAMPS.forEach(r=>r.t.offset.x-=.8*dt);renderer.render(scene,camera)}
+function resize(){const ar=innerWidth/innerHeight;renderer.setSize(Math.round(240*ar),240,false);camera.aspect=ar;camera.updateProjectionMatrix()}
+window.onload=()=>{
+ scene=new THREE.Scene();scene.background=new THREE.Color(0x0c0818);scene.fog=new THREE.Fog(0x0c0818,6,42);
+ camera=new THREE.PerspectiveCamera(70,1,.1,100);camera.rotation.order='YXZ';
+ renderer=new THREE.WebGLRenderer({antialias:false});renderer.setPixelRatio(1);document.body.prepend(renderer.domElement);
+ scene.add(new THREE.AmbientLight(0xb0a8d8,.9));const dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(.4,1,.6);scene.add(dl);
+ const pl=new THREE.PointLight(0xffffff,.6,30);camera.add(pl);scene.add(camera);
+ build();buildKeys();reset();resize();camera.position.set(P.x,1.7,P.z);
+ addEventListener('resize',resize);
+ $('ob').onclick=startGame;
+ document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===document.body);
+ addEventListener('mousemove',e=>{if(state!=='play'||modal)return;
+  if(locked){P.yaw-=e.movementX*.0025;P.pitch=Math.max(-1.2,Math.min(1.2,P.pitch-e.movementY*.0025))}
+  else{mx=(e.clientX-innerWidth/2)/(innerWidth/2);my=(e.clientY-innerHeight/2)/(innerHeight/2)}});
+ addEventListener('mousedown',e=>{if(state==='play'&&!modal&&e.button===0){if(!locked)document.body.requestPointerLock?.();shoot()}});
+ addEventListener('keydown',e=>{keys[e.code]=true;if(e.repeat)return;
+  if(e.code==='Enter'&&state==='play'){e.preventDefault();toggleModal()}
+  else if(e.code==='Space'){e.preventDefault();shoot()}});
+ addEventListener('keyup',e=>keys[e.code]=false);
+ requestAnimationFrame(loop)};
+</script></body></html>
