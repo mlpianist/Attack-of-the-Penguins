@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Penguin Panic</title>
+<title>Attack of the Penguins</title>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
 <style>
@@ -43,7 +43,7 @@ button{font:inherit;font-weight:bold;background:#6a4cff;color:#fff;border:3px so
  <div id="pwrap"><div id="keys"></div></div>
 </div></div>
 <div id="ov" class="ov"><div class="box" style="max-width:460px;width:92%;padding:24px">
- <h1 id="ot" style="margin:0 0 10px;color:#f66;text-shadow:3px 3px #000">PENGUIN PANIC</h1>
+ <h1 id="ot" style="margin:0 0 10px;color:#f66;text-shadow:3px 3px #000">ATTACK OF THE PENGUINS</h1>
  <p id="od" style="font-size:13px;line-height:1.6">20 evil penguins are terrorizing the mall! Cure them all with spells.<br><br>WASD move · Mouse aim · SPACE / Click shoot<br>ENTER: note activity (earn spells) · Esc frees mouse<br>Green escalators go UP, orange go DOWN</p>
  <button id="ob">START</button></div></div>
 <script>
@@ -53,9 +53,17 @@ let penguins=[],humans=[],shots=[],parts=[],keys={},tm=[];
 const P={x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0};
 const RAMPS=[{z:-7,dir:1,y0:0,c:['#1f7a4a','#2fb36d']},{z:7,dir:-1,y0:0,c:['#8a4a10','#d98a2a']},{z:-3,dir:1,y0:6,c:['#1f7a4a','#2fb36d']},{z:3,dir:-1,y0:6,c:['#8a4a10','#d98a2a']}];
 /* audio */
-let ac;function beep(f,d=.2,type='square',v=.12){if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(v,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}
+let ac;function beep(f,d=.2,type='square',v=.12,at=0){if(!ac)return;const t=ac.currentTime+at,o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+d)}
 const NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const freq=n=>{const m=n.match(/^([A-G]#?)(\d)$/);return 440*Math.pow(2,((+m[2]+1)*12+NN.indexOf(m[1])-69)/12)};
+const arp=(ns,gap,type='square',v=.1)=>ns.forEach((n,i)=>beep(freq(n),gap*2.5,type,v,i*gap));
+const sfxChime=()=>arp(['C6','E6','G6','C7'],.07,'sine',.14);
+const sfxBuzz=()=>{beep(92,.5,'sawtooth',.2);beep(98,.5,'square',.1)};
+const sfxShoot=()=>arp(['C5','E5','G#5','C6','E6','G#6'],.05);
+const sfxCure=()=>arp(['C#5','F5','G#5','A#5'],.07,'triangle',.2);
+function sfxHurt(){if(!ac)return;const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();o.type='sawtooth';o.frequency.setValueAtTime(261.63,t);o.frequency.exponentialRampToValueAtTime(110,t+2);g.gain.setValueAtTime(.18,t);g.gain.setValueAtTime(.18,t+1.8);g.gain.linearRampToValueAtTime(0,t+2);o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+2)}
+const bgm=new Audio('Penguin.mp3');bgm.loop=true;bgm.volume=.5;
+const playBgm=()=>{const p=bgm.play();p&&p.catch&&p.catch(()=>{})};
 /* world */
 function tx(c1,c2,rx,ry,stripe){const c=document.createElement('canvas');c.width=c.height=16;const x=c.getContext('2d');x.fillStyle=c1;x.fillRect(0,0,16,16);x.fillStyle=c2;
  if(stripe)x.fillRect(0,0,8,16);else{x.fillRect(0,0,8,8);x.fillRect(8,8,8,8)}
@@ -69,13 +77,45 @@ function build(){
   const t='#ffcc00';box(0,6*L+.05,-10,20,.1,.3,t,t,1,1);box(0,6*L+.05,10,20,.1,.3,t,t,1,1);box(-10,6*L+.05,0,.3,.1,20,t,t,1,1);box(10,6*L+.05,0,.3,.1,20,t,t,1,1)}
  box(0,18.2,0,60,.4,60,'#2a2458','#322c68');
  const w=['#6a3a7a','#7a4688'];
- box(0,9,-30.5,61,18,1,w[0],w[1],30,9);box(0,9,30.5,61,18,1,w[0],w[1],30,9);box(-30.5,9,0,1,18,61,w[0],w[1],30,9);box(30.5,9,0,1,18,61,w[0],w[1],30,9);
+ wallWin(-30.5,1);wallWin(30.5,1);wallWin(-30.5,0);wallWin(30.5,0);outdoors();rails();
  RAMPS.forEach(r=>{const m=box(0,r.y0+3-.15,r.z,20.9,.3,3,r.c[0],r.c[1],10,1);m.rotation.z=r.dir*Math.atan(.3);r.t=m.material.map});
 }
 function groundAt(x,z,y){let b=-Infinity;const lim=y+.7;curRamp=null;
  for(let L=0;L<3;L++){const h=6*L;if(L>0&&Math.abs(x)<10&&Math.abs(z)<10)continue;if(h<=lim&&h>b)b=h}
  for(const r of RAMPS)if(Math.abs(z-r.z)<1.5&&x>-10&&x<10){const h=r.y0+(r.dir>0?x+10:10-x)*.3;if(h<=lim&&h>b){b=h;curRamp=r}}
  return b}
+function wallWin(f,alongX){const c1='#6a3a7a',c2='#7a4688',ext=alongX?62:60;
+ const seg=(p,y,len,h)=>alongX?box(p,y,f,len,h,1,c1,c2,len/2,h/2):box(f,y,p,1,h,len,c1,c2,len/2,h/2);
+ for(let L=0;L<3;L++){const y=6*L;seg(0,y+.5,ext,1);seg(0,y+5.5,ext,1);
+  [[-29,4],[-20,2],[-12,2],[-4,2],[4,2],[12,2],[20,2],[29,4]].forEach(([p,l])=>{if(!alongX&&Math.abs(p)>25){p=p>0?28.5:-28.5;l=3}seg(p,y+3,l,4)})}}
+function outdoors(){
+ const c=document.createElement('canvas');c.width=256;c.height=128;const cx=c.getContext('2d'),gr=cx.createLinearGradient(0,0,0,128);
+ gr.addColorStop(0,'#04061a');gr.addColorStop(1,'#1c2c5c');cx.fillStyle=gr;cx.fillRect(0,0,256,128);cx.fillStyle='#fff';
+ for(let i=0;i<140;i++)cx.fillRect(R()*256|0,R()*100|0,1,1);
+ const st=new THREE.CanvasTexture(c);st.magFilter=st.minFilter=THREE.NearestFilter;
+ const B=o=>new THREE.MeshBasicMaterial(Object.assign({fog:false},o));
+ scene.add(new THREE.Mesh(new THREE.SphereGeometry(200,16,10),B({map:st,side:THREE.BackSide})));
+ const glow=new THREE.Mesh(new THREE.CircleGeometry(22,10),B({color:0x3a4a80}));glow.position.set(-91,40.5,-141);glow.lookAt(0,0,0);scene.add(glow);
+ const moon=new THREE.Mesh(new THREE.CircleGeometry(14,10),B({color:0xf6f2d0}));moon.position.set(-90,40,-140);moon.lookAt(0,0,0);scene.add(moon);
+ const gnd=new THREE.Mesh(new THREE.PlaneGeometry(500,500),B({map:tx('#8ea6d8','#9db4e6',125,125)}));gnd.rotation.x=-Math.PI/2;gnd.position.y=-.5;scene.add(gnd);
+ const hm=B({color:0xc4d0f0}),cg=new THREE.ConeGeometry(2.2,5,6),cg2=new THREE.ConeGeometry(1.5,4,6),cg3=new THREE.ConeGeometry(.9,2,6),m1=B({color:0x1c5a3e}),m2=B({color:0x24704c}),m3=B({color:0xe8f0ff});
+ for(let i=0;i<12;i++){const a=i/12*6.283+R()*.4,r=110+R()*40,h=18+R()*16,m=new THREE.Mesh(new THREE.ConeGeometry(28+R()*16,h,6),hm);m.position.set(Math.sin(a)*r,h/2-.5,Math.cos(a)*r);scene.add(m)}
+ for(let i=0;i<70;i++){let x,z;do{x=(R()-.5)*160;z=(R()-.5)*160}while(Math.max(Math.abs(x),Math.abs(z))<36);
+  const s=.8+R()*.8,t=new THREE.Group();mk(t,cg,m1,0,2.5,0);mk(t,cg2,m2,0,5.5,0);mk(t,cg3,m3,0,8,0);t.scale.setScalar(s);t.position.set(x,-.5,z);scene.add(t)}}
+function rails(){const rm=LM(0xd0d0f0),pm=LM(0x9090c0),sm=LM(0x303060);
+ const bar=(x,y,z,w,h,d,m)=>mk(scene,new THREE.BoxGeometry(w,h,d),m||rm,x,y,z);
+ const run=(x1,z1,x2,z2,y)=>{const ax=z1===z2,len=Math.abs(ax?x2-x1:z2-z1),cx=(x1+x2)/2,cz=(z1+z2)/2;
+  bar(cx,y+1,cz,ax?len:.12,.12,ax?.12:len);bar(cx,y+.5,cz,ax?len:.06,.06,ax?.06:len);
+  for(let k=0;k<=len+.01;k+=2){const px=ax?Math.min(x1,x2)+k:cx,pz=ax?cz:Math.min(z1,z2)+k;bar(px,y+.5,pz,.1,1,.1,pm)}};
+ for(let L=1;L<=2;L++){const y=6*L;run(-10,-10,10,-10,y);run(-10,10,10,10,y);
+  for(const xe of [-10,10]){const gp=RAMPS.filter(r=>(r.y0===y)?(xe===(r.dir>0?-10:10)):(r.y0+6===y&&xe===(r.dir>0?10:-10))).map(r=>r.z).sort((a,b)=>a-b);let s=-10;
+   gp.forEach(z=>{if(z-1.5>s)run(xe,s,xe,z-1.5,y);s=z+1.5});if(s<10)run(xe,s,xe,10,y)}}
+ RAMPS.forEach(r=>[-1,1].forEach(sd=>{const a=r.dir*Math.atan(.3),z=r.z+sd*1.45;
+  const p=bar(0,r.y0+3+.4,z,20.9,.8,.08,sm);p.rotation.z=a;const h=bar(0,r.y0+3+.85,z,20.9,.1,.14);h.rotation.z=a}))}
+let FACE;function faceTex(){if(FACE)return FACE;const c=document.createElement('canvas');c.width=c.height=32;const x=c.getContext('2d');x.fillStyle='#000';
+ x.beginPath();x.ellipse(10,12,3,4.5,0,0,7);x.fill();x.beginPath();x.ellipse(22,12,3,4.5,0,0,7);x.fill();x.beginPath();x.ellipse(16,24,4,6,0,0,7);x.fill();
+ x.strokeStyle='#000';x.lineWidth=2;x.beginPath();x.moveTo(5,5);x.lineTo(13,7);x.moveTo(27,5);x.lineTo(19,7);x.stroke();
+ FACE=new THREE.CanvasTexture(c);FACE.magFilter=FACE.minFilter=THREE.NearestFilter;return FACE}
 function blocked(L,x,z){return Math.abs(x)>28.5||Math.abs(z)>28.5||(L>0&&Math.abs(x)<10.8&&Math.abs(z)<10.8)}
 /* actors */
 function mk(g,geo,mat,x,y,z){const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);g.add(m);return m}
@@ -93,8 +133,8 @@ function mkPenguin(){
  const ft=[-1,1].map(s=>mk(g,new THREE.BoxGeometry(.25,.1,.4),or,s*.2,.05,.12));
  scene.add(g);return{g,body,belly,eye,mouth,brows,fl,ft,good:false,state:'wander',t:0,a:R()*6.28,wt:0}}
 function mkHuman(){
- const g=new THREE.Group(),c=LM(new THREE.Color().setHSL(R(),.6,.5)),sk=LM(0xe8b890);
- mk(g,new THREE.CylinderGeometry(.28,.28,.9,6),c,0,.95,0);mk(g,new THREE.SphereGeometry(.2,6,5),sk,0,1.6,0);
+ const g=new THREE.Group(),c=LM(new THREE.Color().setHSL(R(),.6,.5)),sk=LM(0xe8dcb8);
+ mk(g,new THREE.CylinderGeometry(.28,.28,.9,6),c,0,.95,0);mk(g,new THREE.SphereGeometry(.22,8,6),sk,0,1.6,0);mk(g,new THREE.PlaneGeometry(.28,.28),new THREE.MeshBasicMaterial({map:faceTex(),transparent:true}),0,1.6,.215);[-1,1].forEach(s=>mk(g,new THREE.SphereGeometry(.07,5,4),sk,s*.24,1.5,.12));
  const legs=[-1,1].map(s=>mk(g,new THREE.BoxGeometry(.18,.5,.2),LM(0x333355),s*.12,.25,0));
  scene.add(g);return{g,legs,flee:0,from:null,a:R()*6.28,wt:0}}
 function place(o,L,far){let x,z;do{x=(R()-.5)*56;z=(R()-.5)*56}while(blocked(L,x,z)||(far&&L===0&&Math.hypot(x-P.x,z-P.z)<14));o.g.position.set(x,6*L,z);o.floor=L}
@@ -102,16 +142,16 @@ function step(o,ang,sp,dt){const p=o.g.position,nx=p.x+Math.sin(ang)*sp*dt,nz=p.
  if(blocked(o.floor,nx,nz)){o.a=ang+Math.PI*(.5+R());return false}p.x=nx;p.z=nz;o.g.rotation.y=ang;return true}
 function wander(o,sp,dt){o.wt-=dt;if(o.wt<=0){o.a=R()*6.28;o.wt=2+R()*3}step(o,o.a,sp,dt)}
 function setGood(p){if(p.state==='bite')P.held=0;p.body.color.set(0x2a62d8);p.belly.color.set(0xb8d4ff);p.eye.color.set(0x40a8ff);p.mouth.rotation.z=Math.PI;p.brows.forEach(b=>b.visible=false);p.g.rotation.z=0;p.good=true;p.state='wander';
- const n=penguins.filter(q=>!q.good).length;say(n?'PENGUIN CURED! '+n+' LEFT':'ALL CURED!',2);beep(600,.15);beep(900,.25)}
+ const n=penguins.filter(q=>!q.good).length;say(n?'PENGUIN CURED! '+n+' LEFT':'ALL CURED!',2);sfxCure()}
 function updP(p,dt){const pos=p.g.position;let mv=false;
  if(p.good){wander(p,1.4,dt);mv=true}
  else if(p.state==='cool'){p.t-=dt;if(p.t<=0)p.state='wander'}
  else if(p.state==='bite'){p.t-=dt;p.g.rotation.y=Math.atan2(P.x-pos.x,P.z-pos.z);if(p.t<=0){p.state='cool';p.t=5;P.held=0}}
  else{const dx=P.x-pos.x,dz=P.z-pos.z,d=Math.hypot(dx,dz),same=Math.abs(P.y-p.floor*6)<2.5;
-  if(same&&d<1.7){p.state='bite';p.t=2;P.held=2;P.life-=10;hurt=.6;beep(90,.3,'sawtooth',.2)}
+  if(same&&d<1.7){p.state='bite';p.t=2;P.held=2;P.life-=10;hurt=.6;sfxHurt()}
   else if(same&&d<16){const a=Math.atan2(dx,dz);mv=step(p,a,3.4,dt)||step(p,a+1.4,3.4,dt)||step(p,a-1.4,3.4,dt)}
   else{let best=null,bd=12;humans.forEach(h=>{if(h.floor!==p.floor)return;const e=Math.hypot(h.g.position.x-pos.x,h.g.position.z-pos.z);if(e<bd){bd=e;best=h}});
-   if(best){if(bd<1.2){best.flee=4;best.from={x:pos.x,z:pos.z};p.state='cool';p.t=1.2;beep(200,.1)}else mv=step(p,Math.atan2(best.g.position.x-pos.x,best.g.position.z-pos.z),2.6,dt)}
+   if(best){if(bd<1.2){best.flee=4;best.from={x:pos.x,z:pos.z};p.state='cool';p.t=1.2}else mv=step(p,Math.atan2(best.g.position.x-pos.x,best.g.position.z-pos.z),2.6,dt)}
    else{wander(p,1.6,dt);mv=true}}}
  const s=mv?Math.sin(tNow*9)*.5:0;p.fl[0].rotation.x=s;p.fl[1].rotation.x=-s;p.ft[0].position.z=.12+s*.3;p.ft[1].position.z=.12-s*.3;
  p.g.rotation.z=p.state==='bite'?Math.sin(tNow*40)*.08:0;pos.y=p.floor*6+(mv?Math.abs(Math.sin(tNow*9))*.05:0)}
@@ -127,17 +167,18 @@ function updPlayer(dt){
  let f=0,s=0;if(!modal&&P.held<=0){f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);s=(keys.KeyD?1:0)-(keys.KeyA?1:0)}
  const k=f&&s?.707*7:7;let vx=(-Math.sin(P.yaw)*f+Math.cos(P.yaw)*s)*k,vz=(-Math.cos(P.yaw)*f-Math.sin(P.yaw)*s)*k;
  groundAt(P.x,P.z,P.y);if(curRamp&&P.vy<=0&&P.y-groundAt(P.x,P.z,P.y)<.3)vx+=2.6;
- P.x=Math.max(-29.2,Math.min(29.2,P.x+vx*dt));P.z=Math.max(-29.2,Math.min(29.2,P.z+vz*dt));
+ const cl=v=>Math.max(-29.2,Math.min(29.2,v)),ok=(a,b)=>P.vy<-1||groundAt(a,b,P.y)>=P.y-.8,nx=cl(P.x+vx*dt),nz=cl(P.z+vz*dt);
+ if(ok(nx,nz)){P.x=nx;P.z=nz}else if(ok(nx,P.z))P.x=nx;else if(ok(P.x,nz))P.z=nz;
  const g=groundAt(P.x,P.z,P.y);
  if(P.y-g<=.5&&P.vy<=0){P.y=g;P.vy=0}else{P.vy-=28*dt;P.y+=P.vy*dt;if(P.y<g){P.y=g;P.vy=0}}
  camera.position.set(P.x,P.y+1.7,P.z);camera.rotation.set(P.pitch,P.yaw,P.held>0?Math.sin(tNow*40)*.05:0)}
 function say(m,t=2){$('msg').textContent=m;msgT=t}
 function shoot(){if(modal||state!=='play')return;
  if(P.spells<=0){say('NO SPELLS! PRESS ENTER');beep(120,.15,'sawtooth');return}
- P.spells--;beep(900,.2);const d=new THREE.Vector3(0,0,-1).applyEuler(camera.rotation);
+ P.spells--;sfxShoot();const d=new THREE.Vector3(0,0,-1).applyEuler(camera.rotation);
  const m=new THREE.Mesh(new THREE.OctahedronGeometry(.28,0),new THREE.MeshBasicMaterial({color:0x66ffff}));m.position.copy(camera.position).addScaledVector(d,.8);scene.add(m);shots.push({m,d,life:1.6})}
-const PG=new THREE.BoxGeometry(.12,.12,.12);
-function burst(p){for(let i=0;i<14;i++){const m=new THREE.Mesh(PG,new THREE.MeshBasicMaterial({color:R()<.5?0x66ffff:0xffffff}));m.position.copy(p);scene.add(m);parts.push({m,v:new THREE.Vector3((R()-.5)*6,R()*4,(R()-.5)*6),life:.8})}}
+let PG;
+function burst(p){PG=PG||new THREE.BoxGeometry(.12,.12,.12);for(let i=0;i<14;i++){const m=new THREE.Mesh(PG,new THREE.MeshBasicMaterial({color:R()<.5?0x66ffff:0xffffff}));m.position.copy(p);scene.add(m);parts.push({m,v:new THREE.Vector3((R()-.5)*6,R()*4,(R()-.5)*6),life:.8})}}
 function updShots(dt){
  for(let i=shots.length-1;i>=0;i--){const s=shots[i];s.m.position.addScaledVector(s.d,38*dt);s.m.rotation.y+=dt*10;s.life-=dt;let done=s.life<=0;
   for(const p of penguins){if(p.good)continue;const q=p.g.position;if(Math.hypot(q.x-s.m.position.x,q.y+1-s.m.position.y,q.z-s.m.position.z)<1.2){setGood(p);burst(s.m.position);done=true;break}}
@@ -157,23 +198,23 @@ function round(){tm.forEach(clearTimeout);tm=[];entered=[];busy=false;
  tm.push(setTimeout(()=>{sb.classList.add('fade');pw.classList.add('show')},2000))}
 function fb(t,c){$('fb').textContent=t;$('fb').style.color=c;busy=true;tm.push(setTimeout(round,800))}
 function pressKey(n){if(busy||!$('pwrap').classList.contains('show'))return;
- beep(freq(n),.5,'triangle',.25);entered.push(n);const i=entered.length-1;
- if(n!==target[i]){P.spells=Math.max(0,P.spells-1);fb('WRONG! -1 SPELL','#f66');beep(110,.3,'sawtooth')}
- else{pips();if(entered.length===2){P.spells++;fb('CORRECT! +1 SPELL','#6f6');beep(1100,.2)}}}
+ entered.push(n);const i=entered.length-1;
+ if(n!==target[i]){P.spells=Math.max(0,P.spells-1);fb('WRONG! -1 SPELL','#f66');sfxBuzz()}
+ else{sfxChime();pips();if(entered.length===2){P.spells++;fb('CORRECT! +1 SPELL','#6f6')}}}
 function buildKeys(){const w=$('keys');let wx=0,lw=0;
  for(let m=60;m<=79;m++){const n=NN[m%12]+(Math.floor(m/12)-1),blk=n.includes('#'),e=document.createElement('div');e.className='k '+(blk?'b':'w');
   if(blk)e.style.left=(lw+28)+'px';else{e.style.left=wx+'px';lw=wx;wx+=40}
   e.onmousedown=ev=>{ev.stopPropagation();pressKey(n)};w.appendChild(e)}
  w.style.width=wx+'px'}
 function toggleModal(){if(state!=='play')return;modal=!modal;$('modal').classList.toggle('hidden',!modal);
- if(modal){document.exitPointerLock?.();round()}else{tm.forEach(clearTimeout);document.body.requestPointerLock?.()}}
+ if(modal){document.exitPointerLock?.();bgm.pause();round()}else{tm.forEach(clearTimeout);playBgm();document.body.requestPointerLock?.()}}
 /* flow */
 function reset(){[...penguins,...humans].forEach(o=>scene.remove(o.g));shots.forEach(s=>scene.remove(s.m));parts.forEach(s=>scene.remove(s.m));
  penguins=[];humans=[];shots=[];parts=[];Object.assign(P,{x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0});
  for(let i=0;i<20;i++){const p=mkPenguin();place(p,i%3,true);penguins.push(p);const h=mkHuman();place(h,(i+1)%3,true);humans.push(h)}}
 function showOv(t,d,b,c){$('ot').textContent=t;$('ot').style.color=c;$('od').innerHTML=d;$('ob').textContent=b;$('ov').classList.remove('hidden');document.exitPointerLock?.()}
-function startGame(){if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();reset();modal=false;$('modal').classList.add('hidden');state='play';$('ov').classList.add('hidden');document.body.requestPointerLock?.()}
-function end(win){state='over';modal=false;$('modal').classList.add('hidden');tm.forEach(clearTimeout);
+function startGame(){if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();reset();bgm.currentTime=0;playBgm();modal=false;$('modal').classList.add('hidden');state='play';$('ov').classList.add('hidden');document.body.requestPointerLock?.()}
+function end(win){bgm.pause();state='over';modal=false;$('modal').classList.add('hidden');tm.forEach(clearTimeout);
  if(win)showOv('YOU WIN!','Every penguin is good again. The mall is saved!','PLAY AGAIN','#6f6');
  else showOv('GAME OVER','The penguins got you. Start again?','START AGAIN','#f66')}
 function hud(){$('life').style.width=Math.max(0,P.life)+'%';$('lt').textContent=Math.max(0,P.life);$('sp').textContent=P.spells;$('ev').textContent=penguins.filter(p=>!p.good).length;$('fl').textContent=Math.round(P.y/6)+1;$('hurt').style.opacity=hurt}
@@ -185,7 +226,7 @@ function loop(ms){requestAnimationFrame(loop);const dt=Math.min(.05,(ms-last)/10
 function resize(){const ar=innerWidth/innerHeight;renderer.setSize(Math.round(240*ar),240,false);camera.aspect=ar;camera.updateProjectionMatrix()}
 window.onload=()=>{
  scene=new THREE.Scene();scene.background=new THREE.Color(0x0c0818);scene.fog=new THREE.Fog(0x0c0818,6,42);
- camera=new THREE.PerspectiveCamera(70,1,.1,100);camera.rotation.order='YXZ';
+ camera=new THREE.PerspectiveCamera(70,1,.1,400);camera.rotation.order='YXZ';
  renderer=new THREE.WebGLRenderer({antialias:false});renderer.setPixelRatio(1);document.body.prepend(renderer.domElement);
  scene.add(new THREE.AmbientLight(0xb0a8d8,.9));const dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(.4,1,.6);scene.add(dl);
  const pl=new THREE.PointLight(0xffffff,.6,30);camera.add(pl);scene.add(camera);
