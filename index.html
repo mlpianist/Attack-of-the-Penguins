@@ -50,8 +50,10 @@ button{font:inherit;font-weight:bold;background:#6a4cff;color:#fff;border:3px so
 const $=id=>document.getElementById(id),R=Math.random;
 let scene,camera,renderer,last=0,tNow=0,state='menu',modal=false,locked=false,mx=0,my=0,hurt=0,msgT=0,curRamp=null,busy=false;
 let penguins=[],humans=[],shots=[],parts=[],keys={},tm=[];
-const P={x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0};
+const P={x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0,onRamp:false};
 const RAMPS=[{z:-7,dir:1,y0:0,c:['#1f7a4a','#2fb36d']},{z:7,dir:-1,y0:0,c:['#8a4a10','#d98a2a']},{z:-3,dir:1,y0:6,c:['#1f7a4a','#2fb36d']},{z:3,dir:-1,y0:6,c:['#8a4a10','#d98a2a']}];
+/* wall palettes: one mood per floor */
+const PAL=[['#6a3a7a','#7a4688'],['#1f6b74','#2b8a96'],['#8a3a2a','#b0583a']];
 /* audio */
 let ac;function beep(f,d=.2,type='square',v=.12,at=0){if(!ac)return;const t=ac.currentTime+at,o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+d)}
 const NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -75,18 +77,32 @@ function build(){
  for(let L=1;L<=2;L++){const y=6*L-.2,a='#4a4580',b='#5a5494';
   box(0,y,-20,60,.4,20,a,b);box(0,y,20,60,.4,20,a,b);box(-20,y,0,20,.4,20,a,b);box(20,y,0,20,.4,20,a,b);
   const t='#ffcc00';box(0,6*L+.05,-10,20,.1,.3,t,t,1,1);box(0,6*L+.05,10,20,.1,.3,t,t,1,1);box(-10,6*L+.05,0,.3,.1,20,t,t,1,1);box(10,6*L+.05,0,.3,.1,20,t,t,1,1)}
- box(0,18.2,0,60,.4,60,'#2a2458','#322c68');
- const w=['#6a3a7a','#7a4688'];
+ glassRoof();
  wallWin(-30.5,1);wallWin(30.5,1);wallWin(-30.5,0);wallWin(30.5,0);outdoors();rails();
  RAMPS.forEach(r=>{const m=box(0,r.y0+3-.15,r.z,20.9,.3,3,r.c[0],r.c[1],10,1);m.rotation.z=r.dir*Math.atan(.3);r.t=m.material.map});
 }
+function glassRoof(){
+ const gm=new THREE.Mesh(new THREE.PlaneGeometry(60,60),new THREE.MeshBasicMaterial({color:0x8fc8ff,transparent:true,opacity:.14,side:THREE.DoubleSide,depthWrite:false,fog:false}));
+ gm.rotation.x=-Math.PI/2;gm.position.y=18.2;scene.add(gm);
+ const fm=new THREE.MeshLambertMaterial({color:0x3a3470});
+ for(let i=-30;i<=30;i+=6){mk(scene,new THREE.BoxGeometry(60,.3,.3),fm,0,18.2,i);mk(scene,new THREE.BoxGeometry(.3,.3,60),fm,i,18.2,0)}}
+/* escalator footprint: solid except through the two ends */
+const inFoot=(r,x,z)=>Math.abs(z-r.z)<1.65&&Math.abs(x)<10;
+function rampOK(ox,oz,nx,nz,y){
+ for(const r of RAMPS){
+  if(y<r.y0-.6||y>r.y0+6.6)continue;
+  const a=inFoot(r,ox,oz),b=inFoot(r,nx,nz);
+  if(a===b)continue;
+  if(!(Math.abs((a?nz:oz)-r.z)<1.5))return false;
+  if(b){const h=r.y0+(r.dir>0?nx+10:10-nx)*.3;if(Math.abs(y-h)>.8)return false}}
+ return true}
 function groundAt(x,z,y){let b=-Infinity;const lim=y+.7;curRamp=null;
  for(let L=0;L<3;L++){const h=6*L;if(L>0&&Math.abs(x)<10&&Math.abs(z)<10)continue;if(h<=lim&&h>b)b=h}
  for(const r of RAMPS)if(Math.abs(z-r.z)<1.5&&x>-10&&x<10){const h=r.y0+(r.dir>0?x+10:10-x)*.3;if(h<=lim&&h>b){b=h;curRamp=r}}
  return b}
-function wallWin(f,alongX){const c1='#6a3a7a',c2='#7a4688',ext=alongX?62:60;
- const seg=(p,y,len,h)=>alongX?box(p,y,f,len,h,1,c1,c2,len/2,h/2):box(f,y,p,1,h,len,c1,c2,len/2,h/2);
- for(let L=0;L<3;L++){const y=6*L;seg(0,y+.5,ext,1);seg(0,y+5.5,ext,1);
+function wallWin(f,alongX){const ext=alongX?62:60;let cc=PAL[0];
+ const seg=(p,y,len,h)=>alongX?box(p,y,f,len,h,1,cc[0],cc[1],len/2,h/2):box(f,y,p,1,h,len,cc[0],cc[1],len/2,h/2);
+ for(let L=0;L<3;L++){cc=PAL[L];const y=6*L;seg(0,y+.5,ext,1);seg(0,y+5.5,ext,1);
   [[-29,4],[-20,2],[-12,2],[-4,2],[4,2],[12,2],[20,2],[29,4]].forEach(([p,l])=>{if(!alongX&&Math.abs(p)>25){p=p>0?28.5:-28.5;l=3}seg(p,y+3,l,4)})}}
 function outdoors(){
  const c=document.createElement('canvas');c.width=256;c.height=128;const cx=c.getContext('2d'),gr=cx.createLinearGradient(0,0,0,128);
@@ -116,48 +132,48 @@ let FACE;function faceTex(){if(FACE)return FACE;const c=document.createElement('
  x.beginPath();x.ellipse(10,12,3,4.5,0,0,7);x.fill();x.beginPath();x.ellipse(22,12,3,4.5,0,0,7);x.fill();x.beginPath();x.ellipse(16,24,4,6,0,0,7);x.fill();
  x.strokeStyle='#000';x.lineWidth=2;x.beginPath();x.moveTo(5,5);x.lineTo(13,7);x.moveTo(27,5);x.lineTo(19,7);x.stroke();
  FACE=new THREE.CanvasTexture(c);FACE.magFilter=FACE.minFilter=THREE.NearestFilter;return FACE}
-function blocked(L,x,z){return Math.abs(x)>28.5||Math.abs(z)>28.5||(L>0&&Math.abs(x)<10.8&&Math.abs(z)<10.8)}
+function blocked(L,x,z){return Math.abs(x)>28.5||Math.abs(z)>28.5||(L>0&&Math.abs(x)<10.8&&Math.abs(z)<10.8)||(L===0&&RAMPS.some(r=>r.y0===0&&Math.abs(z-r.z)<1.9&&Math.abs(x)<10.6))}
 /* actors */
 function mk(g,geo,mat,x,y,z){const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);g.add(m);return m}
 const LM=c=>new THREE.MeshLambertMaterial({color:c});
 function mkPenguin(){
- const g=new THREE.Group(),body=LM(0xb01818),belly=LM(0xe8a0a0),or=LM(0xffa020),eye=new THREE.MeshBasicMaterial({color:0xff2020}),dk=LM(0x201010);
+ const g=new THREE.Group(),body=LM(0xb01818),belly=LM(0xe8a0a0),or=LM(0xffa020),eye=new THREE.MeshBasicMaterial({color:0xff2020});
  mk(g,new THREE.SphereGeometry(.5,8,6),body,0,.85,0).scale.set(1,1.5,.9);
  mk(g,new THREE.SphereGeometry(.4,8,6),belly,0,.8,.2).scale.set(1,1.4,.6);
  mk(g,new THREE.SphereGeometry(.32,8,6),body,0,1.75,0);
  mk(g,new THREE.ConeGeometry(.1,.3,4),or,0,1.68,.38).rotation.x=Math.PI/2;
  const eg=new THREE.SphereGeometry(.08,5,4);mk(g,eg,eye,-.14,1.82,.26);mk(g,eg,eye,.14,1.82,.26);
- const mouth=mk(g,new THREE.TorusGeometry(.09,.022,4,6,Math.PI),dk,0,1.55,.27);
- const brows=[-1,1].map(s=>{const b=mk(g,new THREE.BoxGeometry(.17,.04,.04),dk,s*.14,1.94,.27);b.rotation.z=s*.55;return b});
  const fl=[-1,1].map(s=>{const m=mk(g,new THREE.BoxGeometry(.12,.7,.3),body,s*.56,.95,0);m.rotation.z=s*.25;return m});
  const ft=[-1,1].map(s=>mk(g,new THREE.BoxGeometry(.25,.1,.4),or,s*.2,.05,.12));
- scene.add(g);return{g,body,belly,eye,mouth,brows,fl,ft,good:false,state:'wander',t:0,a:R()*6.28,wt:0}}
+ scene.add(g);return{g,body,belly,eye,fl,ft,good:false,state:'wander',t:0,a:R()*6.28,wt:0}}
 function mkHuman(){
  const g=new THREE.Group(),c=LM(new THREE.Color().setHSL(R(),.6,.5)),sk=LM(0xe8dcb8);
  mk(g,new THREE.CylinderGeometry(.28,.28,.9,6),c,0,.95,0);mk(g,new THREE.SphereGeometry(.22,8,6),sk,0,1.6,0);mk(g,new THREE.PlaneGeometry(.28,.28),new THREE.MeshBasicMaterial({map:faceTex(),transparent:true}),0,1.6,.215);[-1,1].forEach(s=>mk(g,new THREE.SphereGeometry(.07,5,4),sk,s*.24,1.5,.12));
  const legs=[-1,1].map(s=>mk(g,new THREE.BoxGeometry(.18,.5,.2),LM(0x333355),s*.12,.25,0));
- scene.add(g);return{g,legs,flee:0,from:null,a:R()*6.28,wt:0}}
+ scene.add(g);return{g,legs,flee:0,stun:0,from:null,a:R()*6.28,wt:0}}
 function place(o,L,far){let x,z;do{x=(R()-.5)*56;z=(R()-.5)*56}while(blocked(L,x,z)||(far&&L===0&&Math.hypot(x-P.x,z-P.z)<14));o.g.position.set(x,6*L,z);o.floor=L}
 function step(o,ang,sp,dt){const p=o.g.position,nx=p.x+Math.sin(ang)*sp*dt,nz=p.z+Math.cos(ang)*sp*dt;
  if(blocked(o.floor,nx,nz)){o.a=ang+Math.PI*(.5+R());return false}p.x=nx;p.z=nz;o.g.rotation.y=ang;return true}
 function wander(o,sp,dt){o.wt-=dt;if(o.wt<=0){o.a=R()*6.28;o.wt=2+R()*3}step(o,o.a,sp,dt)}
-function setGood(p){if(p.state==='bite')P.held=0;p.body.color.set(0x2a62d8);p.belly.color.set(0xb8d4ff);p.eye.color.set(0x40a8ff);p.mouth.rotation.z=Math.PI;p.brows.forEach(b=>b.visible=false);p.g.rotation.z=0;p.good=true;p.state='wander';
+function setGood(p){if(p.state==='bite')P.held=0;p.body.color.set(0x2a62d8);p.belly.color.set(0xb8d4ff);p.eye.color.set(0x40a8ff);p.g.rotation.z=0;p.good=true;p.state='wander';
  const n=penguins.filter(q=>!q.good).length;say(n?'PENGUIN CURED! '+n+' LEFT':'ALL CURED!',2);sfxCure()}
 function updP(p,dt){const pos=p.g.position;let mv=false;
  if(p.good){wander(p,1.4,dt);mv=true}
  else if(p.state==='cool'){p.t-=dt;if(p.t<=0)p.state='wander'}
  else if(p.state==='bite'){p.t-=dt;p.g.rotation.y=Math.atan2(P.x-pos.x,P.z-pos.z);if(p.t<=0){p.state='cool';p.t=5;P.held=0}}
- else{const dx=P.x-pos.x,dz=P.z-pos.z,d=Math.hypot(dx,dz),same=Math.abs(P.y-p.floor*6)<2.5;
+ else{const dx=P.x-pos.x,dz=P.z-pos.z,d=Math.hypot(dx,dz),same=!P.onRamp&&Math.abs(P.y-p.floor*6)<2.5;
   if(same&&d<1.7){p.state='bite';p.t=2;P.held=2;P.life-=10;hurt=.6;sfxHurt()}
   else if(same&&d<16){const a=Math.atan2(dx,dz);mv=step(p,a,3.4,dt)||step(p,a+1.4,3.4,dt)||step(p,a-1.4,3.4,dt)}
-  else{let best=null,bd=12;humans.forEach(h=>{if(h.floor!==p.floor)return;const e=Math.hypot(h.g.position.x-pos.x,h.g.position.z-pos.z);if(e<bd){bd=e;best=h}});
-   if(best){if(bd<1.2){best.flee=4;best.from={x:pos.x,z:pos.z};p.state='cool';p.t=1.2}else mv=step(p,Math.atan2(best.g.position.x-pos.x,best.g.position.z-pos.z),2.6,dt)}
+  else{let best=null,bd=12;humans.forEach(h=>{if(h.floor!==p.floor||h.stun>0)return;const e=Math.hypot(h.g.position.x-pos.x,h.g.position.z-pos.z);if(e<bd){bd=e;best=h}});
+   if(best){if(bd<1.2){best.stun=2;best.flee=0;best.from={x:pos.x,z:pos.z};p.state='cool';p.t=5;p.g.rotation.y=Math.atan2(best.g.position.x-pos.x,best.g.position.z-pos.z)}else mv=step(p,Math.atan2(best.g.position.x-pos.x,best.g.position.z-pos.z),2.6,dt)}
    else{wander(p,1.6,dt);mv=true}}}
  const s=mv?Math.sin(tNow*9)*.5:0;p.fl[0].rotation.x=s;p.fl[1].rotation.x=-s;p.ft[0].position.z=.12+s*.3;p.ft[1].position.z=.12-s*.3;
  p.g.rotation.z=p.state==='bite'?Math.sin(tNow*40)*.08:0;pos.y=p.floor*6+(mv?Math.abs(Math.sin(tNow*9))*.05:0)}
-function updH(h,dt){h.flee=Math.max(0,h.flee-dt);const pos=h.g.position;let np=null,nd=9;
+function updH(h,dt){const pos=h.g.position;
+ if(h.stun>0){h.stun-=dt;if(h.stun<=0)h.flee=4;h.legs[0].rotation.x=h.legs[1].rotation.x=0;return}
+ h.flee=Math.max(0,h.flee-dt);let np=null,nd=9;
  penguins.forEach(p=>{if(p.good||p.floor!==h.floor)return;const e=Math.hypot(p.g.position.x-pos.x,p.g.position.z-pos.z);if(e<nd){nd=e;np=p}});
- let mv=true;const f=np?np.g.position:(h.flee>0?h.from:null);
+ const f=np?np.g.position:(h.flee>0?h.from:null);
  if(f){const a=Math.atan2(pos.x-f.x,pos.z-f.z);step(h,a,5,dt)||step(h,a+1.5,5,dt)||step(h,a-1.5,5,dt)}else wander(h,1.5,dt);
  const s=Math.sin(tNow*10+h.a)*.6;h.legs[0].rotation.x=s;h.legs[1].rotation.x=-s}
 /* player */
@@ -167,10 +183,11 @@ function updPlayer(dt){
  let f=0,s=0;if(!modal&&P.held<=0){f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);s=(keys.KeyD?1:0)-(keys.KeyA?1:0)}
  const k=f&&s?.707*7:7;let vx=(-Math.sin(P.yaw)*f+Math.cos(P.yaw)*s)*k,vz=(-Math.cos(P.yaw)*f-Math.sin(P.yaw)*s)*k;
  groundAt(P.x,P.z,P.y);if(curRamp&&P.vy<=0&&P.y-groundAt(P.x,P.z,P.y)<.3)vx+=2.6;
- const cl=v=>Math.max(-29.2,Math.min(29.2,v)),ok=(a,b)=>P.vy<-1||groundAt(a,b,P.y)>=P.y-.8,nx=cl(P.x+vx*dt),nz=cl(P.z+vz*dt);
+ const cl=v=>Math.max(-29.2,Math.min(29.2,v)),ok=(a,b)=>rampOK(P.x,P.z,a,b,P.y)&&(P.vy<-1||groundAt(a,b,P.y)>=P.y-.8),nx=cl(P.x+vx*dt),nz=cl(P.z+vz*dt);
  if(ok(nx,nz)){P.x=nx;P.z=nz}else if(ok(nx,P.z))P.x=nx;else if(ok(P.x,nz))P.z=nz;
  const g=groundAt(P.x,P.z,P.y);
  if(P.y-g<=.5&&P.vy<=0){P.y=g;P.vy=0}else{P.vy-=28*dt;P.y+=P.vy*dt;if(P.y<g){P.y=g;P.vy=0}}
+ P.onRamp=!!curRamp&&P.y>curRamp.y0+.1;
  camera.position.set(P.x,P.y+1.7,P.z);camera.rotation.set(P.pitch,P.yaw,P.held>0?Math.sin(tNow*40)*.05:0)}
 function say(m,t=2){$('msg').textContent=m;msgT=t}
 function shoot(){if(modal||state!=='play')return;
@@ -210,7 +227,7 @@ function toggleModal(){if(state!=='play')return;modal=!modal;$('modal').classLis
  if(modal){document.exitPointerLock?.();bgm.pause();round()}else{tm.forEach(clearTimeout);playBgm();document.body.requestPointerLock?.()}}
 /* flow */
 function reset(){[...penguins,...humans].forEach(o=>scene.remove(o.g));shots.forEach(s=>scene.remove(s.m));parts.forEach(s=>scene.remove(s.m));
- penguins=[];humans=[];shots=[];parts=[];Object.assign(P,{x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0});
+ penguins=[];humans=[];shots=[];parts=[];Object.assign(P,{x:0,y:0,z:24,vy:0,yaw:0,pitch:0,life:100,spells:0,held:0,onRamp:false});
  for(let i=0;i<20;i++){const p=mkPenguin();place(p,i%3,true);penguins.push(p);const h=mkHuman();place(h,(i+1)%3,true);humans.push(h)}}
 function showOv(t,d,b,c){$('ot').textContent=t;$('ot').style.color=c;$('od').innerHTML=d;$('ob').textContent=b;$('ov').classList.remove('hidden');document.exitPointerLock?.()}
 function startGame(){if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();reset();bgm.currentTime=0;playBgm();modal=false;$('modal').classList.add('hidden');state='play';$('ov').classList.add('hidden');document.body.requestPointerLock?.()}
@@ -219,7 +236,7 @@ function end(win){bgm.pause();state='over';modal=false;$('modal').classList.add(
  else showOv('GAME OVER','The penguins got you. Start again?','START AGAIN','#f66')}
 function hud(){$('life').style.width=Math.max(0,P.life)+'%';$('lt').textContent=Math.max(0,P.life);$('sp').textContent=P.spells;$('ev').textContent=penguins.filter(p=>!p.good).length;$('fl').textContent=Math.round(P.y/6)+1;$('hurt').style.opacity=hurt}
 function loop(ms){requestAnimationFrame(loop);const dt=Math.min(.05,(ms-last)/1000||0);last=ms;tNow=ms/1000;
- if(state==='play'){const w=dt*(modal?.25:1);updPlayer(dt);penguins.forEach(p=>updP(p,w));humans.forEach(h=>updH(h,w));updShots(dt);
+ if(state==='play'){const w=dt*(modal?.5:1);updPlayer(dt);penguins.forEach(p=>updP(p,w));humans.forEach(h=>updH(h,w));updShots(dt);
   hurt=Math.max(0,hurt-dt*1.2);msgT-=dt;if(msgT<=0)$('msg').textContent='';hud();
   if(P.life<=0)end(false);else if(penguins.every(p=>p.good))end(true)}
  RAMPS.forEach(r=>r.t.offset.x-=.8*dt);renderer.render(scene,camera)}
@@ -235,7 +252,7 @@ window.onload=()=>{
  $('ob').onclick=startGame;
  document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===document.body);
  addEventListener('mousemove',e=>{if(state!=='play'||modal)return;
-  if(locked){P.yaw-=e.movementX*.0025;P.pitch=Math.max(-1.2,Math.min(1.2,P.pitch-e.movementY*.0025))}
+  if(locked){P.yaw-=e.movementX*.0025;P.pitch=Math.max(-1.45,Math.min(1.45,P.pitch-e.movementY*.0025))}
   else{mx=(e.clientX-innerWidth/2)/(innerWidth/2);my=(e.clientY-innerHeight/2)/(innerHeight/2)}});
  addEventListener('mousedown',e=>{if(state==='play'&&!modal&&e.button===0){if(!locked)document.body.requestPointerLock?.();shoot()}});
  addEventListener('keydown',e=>{keys[e.code]=true;if(e.repeat)return;
